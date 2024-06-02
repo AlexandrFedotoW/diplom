@@ -1,0 +1,139 @@
+/* Global styles */
+
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+.app-container {
+  max-width: 1200px;
+  margin: 40px auto;
+  padding: 20px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.app-title {
+  font-size: 32px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+/* Date picker container */
+
+.date-picker-container {
+  margin-bottom: 20px;
+}
+
+.date-picker-label {
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.date-picker {
+  margin-top: 10px;
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+/* Coordinates container */
+
+.coordinates-container {
+  margin-bottom: 20px;
+  margin-right: 22px;
+}
+
+.coordinates-label {
+  font-size: 24px;
+  margin-bottom: 10px;
+
+}
+
+.latitude-input,.longitude-input {
+  font-size: 18px;
+  margin-top: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  margin-right: 10px;
+}
+
+/* Bands container */
+
+.bands-container {
+  margin-bottom: 20px;
+}
+
+.bands-label {
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.band-dropdown {
+  margin-top: 10px;
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+/* Upload container */
+
+.upload-container {
+  margin-bottom: 20px;
+  padding: 20px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background-color: #dae8f2;
+}
+
+.upload-label {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+/* Buttons */
+
+.buttons-container {
+  justify-content: center;
+  padding: 10px;
+}
+
+.export-btn,
+.calculate-btn,
+.process-btn {
+  margin: 2px;
+  margin-bottom: 20px;
+  flex-grow: 1;
+  background-color: #4CAF50;
+  color: #fff;
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.export-btn:hover,.calculate-btn:hover,.process-btn:hover {
+  background-color: #3e8e41;
+}
+/* Output containers */
+
+.output-container,.image-container,.ndvi-container,.percentage-container {
+  margin-bottom: 20px;
+  padding: 20px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background-color: #f9f9f9;
+}
+
+.output-header {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
