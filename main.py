@@ -11,8 +11,10 @@ from shapely.geometry import Point
 from geopandas.tools import sjoin
 import plotly.express as px
 import dash_leaflet as dl
+import shapefile
+import json
 
-ee.Initialize()
+ee.Initialize(project='ee-my-username121')
 
 app = dash.Dash(__name__, external_stylesheets=['style.css'])
 
@@ -89,7 +91,7 @@ app.layout = html.Div(className='app-container', children=[
     html.Div(id='percentage-output', className='percentage-container'),
     html.Div(id='export-status', className='export-status'),
     html.Div(id='ndvi-output', className='ndvi-container'),
-    html.Div(id='update-map-nbr', className='output-container'),
+    html.Div(id='map-output', className='output-container1'),
     dcc.Graph(id='geojson-map', className='geojson-map')
 ])
 
@@ -106,6 +108,8 @@ def update_map(contents):
     decoded = base64.b64decode(content_string)
     file_io = io.BytesIO(decoded)
     gdf = gpd.read_file(file_io)
+    largest_polygon = gdf.geometry.area.idxmax()
+    gdf = gdf.drop(index=largest_polygon)
 
     fig = px.choropleth_mapbox(
         gdf,
@@ -457,74 +461,85 @@ def update_output1(contents, filename):
     else:
         return html.Div("Загрузите файл для обработки", style={'font-size': '18px'}), None
 
-
 @app.callback(
-    Output("update-map-nbr", "contents"),
-    Input("update-map-btn", "n_clicks")
+    Output('map-output', 'children'),
+    Input('update-map-btn', 'n_clicks'),
 )
-def get_nbr_change_url(n_clicks):
+def update_nbr_image(n_clicks):
     if n_clicks:
-        geometry = ee.Geometry.Polygon([[94.12, 64.5], [120, 64.5], [120, 50], [94.12, 50]])
-        irk = ee.FeatureCollection('projects/ee-yupest/assets/irk_region')
+        geometry = ee.Geometry.Polygon([
+            [[106.8, 59.4], [111.888, 59.4], [111.888, 56.26], [106.8, 56.26]]
+        ])
 
-        fire_start = ee.Date('2019-08-01')
-        fire_end = ee.Date('2019-08-11')
-
+        irk = ee.FeatureCollection('projects/ee-yupest/assets/Kirenskoe')
+        fireStart = ee.Date('2018-07-15')
+        fireEnd = ee.Date('2019-08-11')
         s2 = ee.ImageCollection("COPERNICUS/S2")
+        filtered = s2.filterBounds(geometry).select('B.*')
+        csPlus = ee.ImageCollection('GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED')
+        csPlusBands = csPlus.first().bandNames()
 
-        filtered = s2.filter(ee.Filter.bounds(geometry)).select('B.*')
+        def add_cs_bands(image):
+            csImage = csPlus.filter(ee.Filter.eq('system:index', image.get('system:index'))).first()
+            return image.addBands(csImage.select(csPlusBands))
 
-        cs_plus = ee.ImageCollection('GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED')
-        cs_plus_bands = cs_plus.first().bandNames()
+        filteredS2WithCs = filtered.map(add_cs_bands)
 
-        def add_cs_bands(img):
-            cs_img = cs_plus.filter(ee.Filter.eq('system:index', img.get('system:index'))).first()
-            return img.addBands(cs_img.select(cs_plus_bands))
-
-        filtered_s2_with_cs = filtered.map(add_cs_bands)
-
-        def mask_low_qa(image):
-            qa_band = 'cs'  # Используем правильное имя полосы 'cs' вместо 'cloudscore'
-            clear_threshold = 0.5
-            mask = image.select(qa_band).gte(clear_threshold)
+        def maskLowQA(image):
+            qaBand = 'cs'
+            clearThreshold = 0.5
+            mask = image.select(qaBand).gte(clearThreshold)
             return image.updateMask(mask)
 
-        filtered_masked = filtered_s2_with_cs.map(mask_low_qa)
+        filteredMasked = filteredS2WithCs.map(maskLowQA)
 
-        before = filtered_masked.filter(ee.Filter.date(fire_start.advance(-2, 'month'), fire_start)).median()
-        after = filtered_masked.filter(ee.Filter.date(fire_end, fire_end.advance(1, 'month'))).median()
-
-        def add_nbr(image):
+        def addNBR(image):
             nbr = image.normalizedDifference(['B8', 'B12']).rename(['nbr'])
             return image.addBands(nbr)
 
-        before_nbr = add_nbr(before).select('nbr')
-        after_nbr = add_nbr(after).select('nbr')
-
+        before = filteredMasked.filterDate(fireStart, fireStart.advance(1, 'month')).median()
+        after = filteredMasked.filterDate(fireEnd, fireEnd.advance(1, 'month')).median()
+        before_nbr = addNBR(before).select('nbr')
+        after_nbr = addNBR(after).select('nbr')
         change = before_nbr.subtract(after_nbr).clip(irk)
+        severity = change \
+            .where(change.lt(0.10), 0) \
+            .where(change.gte(0.10).And(change.lt(0.27)), 1) \
+            .where(change.gte(0.27).And(change.lt(0.44)), 2) \
+            .where(change.gte(0.44).And(change.lt(0.66)), 3) \
+            .where(change.gte(0.66), 4)
 
-        dnbr_palette = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026']
-        change_vis_params = {
-            'min': 0.1,
-            'max': 0.7,
-            'palette': dnbr_palette
+        aoi_geojson = json.dumps(irk.geometry().getInfo())
+        colors = {
+            0: (0, 128, 0),  # Green
+            1: (255, 255, 0),  # Yellow
+            2: (255, 165, 0),  # Orange
+            3: (255, 0, 0),  # Red
+            4: (255, 0, 255)  # Magenta
         }
 
-        map_id_dict = change.getMapId(change_vis_params)
-        return map_id_dict['tile_fetcher'].url_format
+        color_map = dl.Colorbar(colorscale=list(colors.values()), min=0.1, max=1)
+        visualization_params = {
+            'min': 0,
+            'max': 4,
+            'palette': ['green', 'yellow', 'orange', 'red', 'magenta']
+        }
 
-# Создание компонента карты Dash Leaflet
-    map_component = dl.Map(center=[57, 107], zoom=5, children=[
-        dl.TileLayer(),
-        dl.TileLayer(id="change-layer", attribution='Google Earth Engine')
-    ])
+        severity_colored = severity.visualize(**visualization_params)
+        severity_colored_url = severity_colored.clip(irk).getMapId()['tile_fetcher'].url_format
 
-    # Создание макета приложения
-    app.layout = html.Div([
-        html.H1("Изменения NBR (Normalized Burn Ratio)"),
-        html.Button("Обновить карту", id="update-map-button", n_clicks=0),
-        map_component
-    ])
+        map = html.Div([
+            dl.Map([
+                dl.TileLayer(),
+                dl.GeoJSON(data=aoi_geojson, id="aoi"),
+                dl.TileLayer(url=severity_colored_url),
+                color_map
+            ],
+                style={'width': '100%', 'height': '100vh'},
+                center=[58.83, 109.15],
+                zoom=7)
+        ])
+        return map
 
 
 @app.callback(
