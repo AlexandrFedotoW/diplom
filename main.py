@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 import base64
 from shapely.geometry import Point
 from geopandas.tools import sjoin
-import plotly.express as px
 import dash_leaflet as dl
-import shapefile
 import json
+import plotly.express as px
+
 
 ee.Initialize(project='ee-my-username121')
 
@@ -87,13 +87,86 @@ app.layout = html.Div(className='app-container', children=[
     html.Button('Расчет пожаров', id='process-fire-data-btn', className='process-btn', style={'font-size': '14px'}),
     html.Button('Расчет NDVI', id='calculate-ndvi-btn', className='calculate-btn', style={'font-size': '14px'}),
     html.Button('Визуализация', id='update-map-btn', className='calculate-btn', style={'font-size': '14px'}),
+    html.Button('Анализ изменений', id='ndvi-analiz-btn', className='calculate-btn', style={'font-size': '14px'}),
     html.Div(id='output-data1', className='output-container'),
     html.Div(id='percentage-output', className='percentage-container'),
     html.Div(id='export-status', className='export-status'),
     html.Div(id='ndvi-output', className='ndvi-container'),
     html.Div(id='map-output', className='output-container1'),
-    dcc.Graph(id='geojson-map', className='geojson-map')
+    dcc.Graph(id='geojson-map', className='geojson-map'),
+    html.Div(id='output-graph')
 ])
+
+
+@app.callback(
+    Output('output-graph', 'children'),
+    Input('date-picker-range', 'start_date'),
+    Input('date-picker-range', 'end_date'),
+    Input('ndvi-analiz-btn', 'n_clicks'),
+    Input('latitude-input', 'value'),
+     Input('longitude-input', 'value'),
+)
+def vis_ndvi_analyzis(start_date, end_date, n_clicks, latitude, longitude):
+    if n_clicks:
+        if start_date and end_date:
+
+            def calculate_ndvi(image):
+                ndvi = image.normalizedDifference(['B5', 'B4']).rename(
+                    'NDVI')
+                return image.addBands(ndvi)
+
+
+            point = ee.Geometry.Point(longitude, latitude)
+
+            def get_ndvi_for_period(start_date, end_date):
+                collection = (
+                    ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+                    .filterDate(start_date, end_date)
+                    .filterBounds(point)
+                    .map(calculate_ndvi))
+
+                if collection.size().getInfo() == 0:
+                    return None
+
+                image = collection.first()
+                ndvi = image.select('NDVI').reduceRegion(
+                    reducer=ee.Reducer.mean(),
+                    geometry=point,
+                    scale=30
+                ).get('NDVI').getInfo()
+                return ndvi
+
+            ndvi_start = get_ndvi_for_period(start_date, end_date)
+
+            if ndvi_start is not None:
+                start_date_next_year = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=355)
+                end_date_next_year = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=395)
+                ndvi_next_year = get_ndvi_for_period(start_date_next_year, end_date_next_year)
+                if ndvi_next_year is not None:
+                    months = pd.date_range(start=start_date, end=end_date_next_year, freq='MS')
+                    months_str = [month.strftime('%b') for month in months]
+                    return dcc.Graph(
+                        figure={
+                            'data': [
+                                {'x': [start_date, start_date_next_year], 'y': [ndvi_start, ndvi_next_year],
+                                 'type': 'bar', 'name': 'NDVI'},
+                            ],
+                            'layout': {
+                                'title': f'Изменение NDVI между {start_date} и {start_date_next_year}',
+                                'xaxis': {'title': 'Дата', 'tickvals': [start_date, start_date_next_year],
+                                          'ticktext': months_str},
+                                'yaxis': {'title': 'NDVI'},
+                                'barmode': 'group'
+                            }
+                        }
+                    )
+                else:
+                    return html.Div(f'Нет изображений для периода с {start_date_next_year} по {end_date_next_year}')
+            else:
+                return html.Div(f'Нет изображений для периода с {start_date} по {end_date}')
+        else:
+            return None
+
 
 
 @app.callback(
@@ -320,10 +393,11 @@ def export_image(n_clicks, start_date, end_date, latitude, longitude, bands):
                 eightConnected=True
             )
 
-            output_path = 'fire_polygons_export_test'
+            fire_polygons_with_nbr = fire_polygons.map(lambda feature: feature.set('NBR', feature.geometry().area()))
+            output_path = 'fire_polygons_export_test1'
 
             task = ee.batch.Export.table.toDrive(
-                collection=fire_polygons,
+                collection=fire_polygons_with_nbr,
                 description='Fire Polygons Export',
                 fileFormat='GeoJSON',
                 fileNamePrefix='fire_polygons',
@@ -333,7 +407,7 @@ def export_image(n_clicks, start_date, end_date, latitude, longitude, bands):
             task.start()
 
             return html.Div([
-                html.P('Полигоны экспортировано в GeoJSON!')
+                html.P('Полигоны экспортированы в GeoJSON с добавленными значениями NBR!')
             ])
         else:
             return "Для экспорта изображения необходимо выбрать даты"
